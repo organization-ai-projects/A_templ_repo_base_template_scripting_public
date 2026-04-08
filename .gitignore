@@ -1,0 +1,27 @@
+# Cargo
+/target/
+
+# logs
+*.log
+
+# editor swap files
+*.swp
+*.swo
+*.tmp
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Debug files
+*.dSYM/
+*.stackdump
+
+# Compilation files
+*.o
+*.so
+*.rlib
+*.crate
+
+# IDE files
+.codex
