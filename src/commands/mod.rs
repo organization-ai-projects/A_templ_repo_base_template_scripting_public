@@ -1,4 +1,5 @@
 mod automation_sync;
+mod breaking_change_analysis;
 mod closure_hygiene;
 mod command_args;
 mod done_in_dev_status;
@@ -25,6 +26,7 @@ mod reference_text;
 mod rustfmt_automation;
 mod scripts_integrity;
 mod stable_deps_placeholder;
+mod validation_gate_status;
 mod workflow_run_pr;
 
 pub(crate) use automation_sync::AutomationSync;

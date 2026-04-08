@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::commands::breaking_change_analysis::BreakingChangeAnalysis;
+use crate::commands::validation_gate_status::ValidationGateState;
 use crate::commands::{CommandArgs, GitCli, GitHubActions, GitHubCli, PrDirective, ReferenceKind};
 
 pub(crate) struct PrBodyContractSync {
@@ -95,7 +97,7 @@ impl PrBodyContractSync {
             self.github
                 .read_pull_request_field(&context.repo, &context.pr_number, "body")?;
 
-        if normalize_ci_line(&expected) != normalize_ci_line(&current) {
+        if expected != current {
             return Err("PR body contract mismatch after auto-sync.".to_string());
         }
 
@@ -156,18 +158,22 @@ impl PrBodyContractSync {
             .read_pull_request_commit_messages(&context.repo, &context.pr_number)?;
         let payload = format!("{}\n{}\n{}", pr_title, pr_body, commit_messages.join("\n"));
 
-        let ci_status = self
-            .github
-            .read_pull_request_ci_status(&context.repo, &context.pr_number)?;
+        let breaking_change = BreakingChangeAnalysis::analyze(
+            &self.git,
+            &context.worktree,
+            &context.base_ref,
+            &context.head_ref,
+        )?;
         let issue_outcomes = self.build_issue_outcomes_section(&payload)?;
         let key_changes = self.build_key_changes_section(&commit_messages);
         let change_footprint = self.build_change_footprint_section(context)?;
+        let validation_gate = ValidationGateState::new(breaking_change).render_section();
 
         Ok(format!(
-            "### Description\n\nThis pull request merges the `{}` branch into `{}` and summarizes merged pull requests and resolved issues.\n\n### Validation Gate\n\n- CI: {}\n- No breaking change\n\n### Issue Outcomes\n\n{}\n\n### Key Changes\n\n{}\n\n#### Change Footprint\n\n{}",
+            "### Description\n\nThis pull request merges the `{}` branch into `{}` and summarizes merged pull requests and resolved issues.\n\n{}\n\n### Issue Outcomes\n\n{}\n\n### Key Changes\n\n{}\n\n#### Change Footprint\n\n{}",
             context.head_ref,
             context.base_ref,
-            ci_status.as_label(),
+            validation_gate,
             issue_outcomes,
             key_changes,
             change_footprint
@@ -403,19 +409,6 @@ struct GenerationContext {
     base_ref: String,
     head_ref: String,
     worktree: String,
-}
-
-fn normalize_ci_line(body: &str) -> String {
-    body.lines()
-        .map(|line| {
-            if line.starts_with("- CI: ") {
-                "- CI: <DYNAMIC>".to_string()
-            } else {
-                line.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn sort_issue_number(issue: &str) -> u64 {
