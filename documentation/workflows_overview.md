@@ -46,7 +46,7 @@ The result is:
 - PR body management
 - issue and PR guardrails
 - closure and reopen orchestration
-- validation status refresh
+- validation gate refresh
 
 ## Related Docs
 

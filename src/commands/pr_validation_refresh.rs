@@ -1,8 +1,11 @@
-use crate::commands::{CommandArgs, GitHubCli};
+use crate::commands::breaking_change_analysis::BreakingChangeAnalysis;
+use crate::commands::validation_gate_status::ValidationGateState;
+use crate::commands::{CommandArgs, GitCli, GitHubCli};
 
 pub(crate) struct PrValidationRefresh {
     pub(crate) args: CommandArgs,
     github: GitHubCli,
+    git: GitCli,
 }
 
 impl PrValidationRefresh {
@@ -10,17 +13,28 @@ impl PrValidationRefresh {
         Self {
             args,
             github: GitHubCli,
+            git: GitCli,
         }
     }
 
     pub(crate) fn refresh(&self) -> Result<(), String> {
         let repo = self.args.resolve_repo()?;
         let pr_number = self.args.resolve_pull_request_number("--pr")?.as_string();
+        let base_ref = self
+            .github
+            .read_pull_request_field(&repo, &pr_number, "baseRefName")?;
+        let head_ref = self
+            .github
+            .read_pull_request_field(&repo, &pr_number, "headRefName")?;
+        let worktree = self.args.extract_flag_value_or("--worktree", ".");
+
+        let _ = self.git.fetch_branches(&worktree, &base_ref, &head_ref);
         let pr_body = self
             .github
             .read_pull_request_field(&repo, &pr_number, "body")?;
-        let ci_status = self.github.read_pull_request_ci_status(&repo, &pr_number)?;
-        let new_body = self.update_validation_gate(&pr_body, ci_status.as_label());
+        let breaking_change =
+            BreakingChangeAnalysis::analyze(&self.git, &worktree, &base_ref, &head_ref)?;
+        let new_body = ValidationGateState::new(breaking_change).replace_in_body(&pr_body);
 
         if new_body == pr_body {
             println!("PR unchanged: #{pr_number}");
@@ -31,29 +45,5 @@ impl PrValidationRefresh {
             .update_pull_request_body(&repo, &pr_number, &new_body)?;
         println!("PR updated: #{pr_number}");
         Ok(())
-    }
-    fn update_validation_gate(&self, pr_body: &str, ci_status: &str) -> String {
-        let mut lines: Vec<String> = pr_body.lines().map(ToString::to_string).collect();
-
-        if let Some(index) = lines
-            .iter()
-            .position(|line| line.trim_start().starts_with("- CI:"))
-        {
-            lines[index] = format!("- CI: {ci_status}");
-            return lines.join("\n");
-        }
-
-        let base = pr_body.trim_end_matches('\n');
-        let mut new_body = String::new();
-
-        if !base.is_empty() {
-            new_body.push_str(base);
-            new_body.push_str("\n\n");
-        }
-
-        new_body.push_str("### Validation Gate\n\n");
-        new_body.push_str(&format!("- CI: {ci_status}\n"));
-        new_body.push_str("- No breaking change");
-        new_body
     }
 }
