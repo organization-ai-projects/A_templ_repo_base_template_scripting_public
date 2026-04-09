@@ -1,8 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::commands::breaking_change_analysis::BreakingChangeAnalysis;
+use crate::commands::github_cli::PullRequestCommit;
 use crate::commands::validation_gate_status::ValidationGateState;
 use crate::commands::{CommandArgs, GitCli, GitHubActions, GitHubCli, PrDirective, ReferenceKind};
+use crate::regex::ISSUE_DIRECTIVE_EVENT_REGEX;
 
 pub(crate) struct PrBodyContractSync {
     pub(crate) args: CommandArgs,
@@ -90,6 +92,29 @@ impl PrBodyContractSync {
         Ok(())
     }
 
+    pub(crate) fn generate_and_write_for(
+        &self,
+        repo: &str,
+        pr_number: &str,
+        base_ref: &str,
+        head_ref: &str,
+        worktree: &str,
+    ) -> Result<(), String> {
+        let context = GenerationContext {
+            repo: repo.to_string(),
+            pr_number: pr_number.to_string(),
+            base_ref: base_ref.to_string(),
+            head_ref: head_ref.to_string(),
+            worktree: worktree.to_string(),
+        };
+        let generated_body = self.generate_body(&context)?;
+
+        self.github
+            .update_pull_request_body(repo, pr_number, &generated_body)?;
+
+        Ok(())
+    }
+
     pub(crate) fn guard_contract(&self) -> Result<(), String> {
         let context = self.resolve_generation_context()?;
         let expected = self.generate_body(&context)?;
@@ -153,9 +178,13 @@ impl PrBodyContractSync {
         let pr_title =
             self.github
                 .read_pull_request_field(&context.repo, &context.pr_number, "title")?;
-        let commit_messages = self
+        let commit_entries = self
             .github
-            .read_pull_request_commit_messages(&context.repo, &context.pr_number)?;
+            .read_pull_request_commits(&context.repo, &context.pr_number)?;
+        let commit_messages = commit_entries
+            .iter()
+            .map(|commit| commit.message.clone())
+            .collect::<Vec<_>>();
         let payload = format!("{}\n{}\n{}", pr_title, pr_body, commit_messages.join("\n"));
 
         let breaking_change = BreakingChangeAnalysis::analyze(
@@ -165,7 +194,7 @@ impl PrBodyContractSync {
             &context.head_ref,
         )?;
         let issue_outcomes = self.build_issue_outcomes_section(&payload)?;
-        let key_changes = self.build_key_changes_section(&commit_messages);
+        let key_changes = self.build_key_changes_section(&commit_entries);
         let change_footprint = self.build_change_footprint_section(context)?;
         let validation_gate = ValidationGateState::new(breaking_change).render_section();
 
@@ -277,7 +306,7 @@ impl PrBodyContractSync {
         Ok(lines.join("\n"))
     }
 
-    fn build_key_changes_section(&self, commit_messages: &[String]) -> String {
+    fn build_key_changes_section(&self, commits: &[PullRequestCommit]) -> String {
         let mut groups: HashMap<&str, Vec<String>> = HashMap::from([
             ("Synchronization", Vec::new()),
             ("Features", Vec::new()),
@@ -285,10 +314,18 @@ impl PrBodyContractSync {
             ("Refactoring", Vec::new()),
             ("Other", Vec::new()),
         ]);
+        let mut seen_shas = HashSet::new();
 
-        for raw in commit_messages {
-            let line = raw.trim();
+        for commit in commits {
+            if !seen_shas.insert(commit.sha.as_str()) {
+                continue;
+            }
+
+            let line = commit_subject(&commit.message);
             if line.is_empty() || line.starts_with("Merge pull request #") {
+                continue;
+            }
+            if issue_directive_only_line(line) {
                 continue;
             }
 
@@ -413,4 +450,25 @@ struct GenerationContext {
 
 fn sort_issue_number(issue: &str) -> u64 {
     issue.trim_start_matches('#').parse::<u64>().unwrap_or(0)
+}
+
+fn issue_directive_only_line(line: &str) -> bool {
+    let Ok(regex) = &*ISSUE_DIRECTIVE_EVENT_REGEX else {
+        return false;
+    };
+
+    regex
+        .find(line)
+        .is_some_and(|matched| matched.start() == 0 && matched.end() == line.len())
+}
+
+fn commit_subject(message: &str) -> &str {
+    message
+        .split('\n')
+        .next()
+        .unwrap_or(message)
+        .split("\\n")
+        .next()
+        .unwrap_or(message)
+        .trim()
 }
