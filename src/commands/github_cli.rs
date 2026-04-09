@@ -18,24 +18,6 @@ pub(crate) struct MilestoneSummary {
     pub(crate) open_issues: u64,
 }
 
-pub(crate) enum PullRequestCiStatus {
-    Unknown,
-    Fail,
-    Running,
-    Pass,
-}
-
-impl PullRequestCiStatus {
-    pub(crate) fn as_label(&self) -> &'static str {
-        match self {
-            Self::Unknown => "UNKNOWN ⚪",
-            Self::Fail => "FAIL ❌",
-            Self::Running => "RUNNING ⏳",
-            Self::Pass => "PASS ✅",
-        }
-    }
-}
-
 impl GitHubCli {
     pub(crate) fn execute_api(&self, args: &[&str]) -> Result<Output, String> {
         let mut gh_args = vec!["api"];
@@ -219,67 +201,6 @@ impl GitHubCli {
             "--jq",
             &format!(".{field}"),
         ])
-    }
-
-    pub(crate) fn read_pull_request_status_rollup(
-        &self,
-        repo: &str,
-        pr_number: &str,
-    ) -> Result<String, String> {
-        self.read_command(&[
-            "pr",
-            "view",
-            pr_number,
-            "-R",
-            repo,
-            "--json",
-            "statusCheckRollup",
-            "--jq",
-            ".statusCheckRollup[]? | [(.conclusion // \"\"),(.state // \"\"),(.status // \"\")] | @tsv",
-        ])
-    }
-
-    pub(crate) fn read_pull_request_ci_status(
-        &self,
-        repo: &str,
-        pr_number: &str,
-    ) -> Result<PullRequestCiStatus, String> {
-        let rollup = self.read_pull_request_status_rollup(repo, pr_number)?;
-
-        if rollup.trim().is_empty() {
-            return Ok(PullRequestCiStatus::Unknown);
-        }
-
-        let mut has_pass = false;
-
-        for line in rollup.lines() {
-            let mut parts = line.split('\t');
-            let conclusion = parts.next().unwrap_or("");
-            let state = parts.next().unwrap_or("");
-            let status = parts.next().unwrap_or("");
-            let raw = [conclusion, state, status]
-                .into_iter()
-                .find(|value| !value.is_empty())
-                .unwrap_or("")
-                .to_ascii_uppercase();
-
-            match raw.as_str() {
-                "FAILURE" | "FAILED" | "CANCELLED" | "TIMED_OUT" | "ACTION_REQUIRED"
-                | "STARTUP_FAILURE" => return Ok(PullRequestCiStatus::Fail),
-                "IN_PROGRESS" | "QUEUED" | "PENDING" | "WAITING" | "REQUESTED" => {
-                    return Ok(PullRequestCiStatus::Running);
-                }
-                "SUCCESS" | "PASSED" => has_pass = true,
-                "" => return Ok(PullRequestCiStatus::Unknown),
-                _ => {}
-            }
-        }
-
-        if has_pass {
-            Ok(PullRequestCiStatus::Pass)
-        } else {
-            Ok(PullRequestCiStatus::Unknown)
-        }
     }
 
     pub(crate) fn update_pull_request_body(

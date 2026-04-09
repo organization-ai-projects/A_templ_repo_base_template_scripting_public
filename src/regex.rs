@@ -17,3 +17,18 @@ pub(crate) static ISSUE_DIRECTIVE_EVENT_REGEX: LazyLock<Result<Regex, regex::Err
     LazyLock::new(|| {
         Regex::new(r"(?i)\b(cancel-closes|closes|fixes|reopen|reopens)\b\s+(rejected\s+)?(#\d+)")
     });
+
+pub(crate) static BREAKING_CHANGE_CHECKBOX_REGEX: LazyLock<Result<Regex, regex::Error>> =
+    LazyLock::new(|| Regex::new(r"(?im)^\s*-\s*\[[xX]\]\s*breaking[\s_-]*change(?:\s|$)"));
+
+pub(crate) static BREAKING_CHANGE_LABEL_REGEX: LazyLock<Result<Regex, regex::Error>> =
+    LazyLock::new(|| Regex::new(r"(?im)^\s*breaking[\s_-]*change\s*:"));
+
+pub(crate) static BREAKING_CHANGE_NEGATIVE_REGEX: LazyLock<Result<Regex, regex::Error>> =
+    LazyLock::new(|| Regex::new(r"(?i)\b(?:no|without)\s+breaking[\s_-]*changes?\b"));
+
+pub(crate) static BREAKING_CONVENTIONAL_COMMIT_REGEX: LazyLock<Result<Regex, regex::Error>> =
+    LazyLock::new(|| Regex::new(r"(?i)^\s*[a-z][a-z0-9_-]*(?:\([a-z0-9_.,/\-]+\))?!:\s+"));
+
+pub(crate) static BREAKING_SCOPE_SUBJECT_REGEX: LazyLock<Result<Regex, regex::Error>> =
+    LazyLock::new(|| Regex::new(r"(?i)^\s*[a-z][a-z0-9_-]*\(([a-z0-9_.,/\-]+)\)!:\s+"));

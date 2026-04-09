@@ -3,6 +3,36 @@ use std::process::Command;
 pub(crate) struct GitCli;
 
 impl GitCli {
+    pub(crate) fn log_commit_records(
+        &self,
+        worktree: &str,
+        range: &str,
+    ) -> Result<Vec<(String, String, String)>, String> {
+        let output = Command::new("git")
+            .args(["log", "--format=%H%x1f%s%x1f%b%x1e", range])
+            .current_dir(worktree)
+            .output()
+            .map_err(|error| format!("Failed to execute git log: {error}"))?;
+
+        if !output.status.success() {
+            return Ok(Vec::new());
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout)
+            .split('\x1e')
+            .filter_map(|record| {
+                if record.trim().is_empty() {
+                    return None;
+                }
+                let mut parts = record.splitn(3, '\x1f');
+                let hash = parts.next()?.trim().to_string();
+                let subject = parts.next().unwrap_or_default().trim().to_string();
+                let body = parts.next().unwrap_or_default().trim().to_string();
+                Some((hash, subject, body))
+            })
+            .collect())
+    }
+
     pub(crate) fn fetch_branches(
         &self,
         worktree: &str,

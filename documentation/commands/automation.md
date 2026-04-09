@@ -31,7 +31,7 @@ Primary module:
 - `resolve-workflow-run-pr`
 - `refresh-pr-validation`
 
-Used to refresh the PR validation gate after watched workflows complete.
+Used to resolve workflow-run PR context and refresh the PR `Validation Gate` after later repository changes when that section needs to be recomputed.
 
 Primary modules:
 
@@ -68,6 +68,19 @@ Primary modules:
 - `guard-pr-body-contract`
 
 These commands manage PR body content, directive normalization, and contract enforcement.
+
+For the `Validation Gate`, the current contract is:
+
+- render `- No breaking change` when no breaking change is detected
+- render `- Breaking change` when breaking change analysis detects one
+- render a `Breaking scope` subsection when a breaking change is detected
+- include affected `crate(s)` when they can be inferred
+- include `source commit(s)` that triggered the breaking-change analysis
+
+Primary support modules for that contract:
+
+- [breaking_change_analysis.rs](/home/bezotremi/Projects/rust/organization-ai-projects/bezotem_platform/templates/repo_base_template_scripting/public/src/commands/breaking_change_analysis.rs)
+- [validation_gate_status.rs](/home/bezotremi/Projects/rust/organization-ai-projects/bezotem_platform/templates/repo_base_template_scripting/public/src/commands/validation_gate_status.rs)
 
 Primary modules:
 

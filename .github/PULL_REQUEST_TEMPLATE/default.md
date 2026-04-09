@@ -10,7 +10,6 @@ This pull request proposes merging the `<head-branch>` branch into `<base-branch
 
 <!-- Generated/updated by automation when available. -->
 
-- CI: UNKNOWN ⚪
 - No breaking change
 
 ## Issue Outcomes
