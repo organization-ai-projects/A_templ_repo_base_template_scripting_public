@@ -4,7 +4,8 @@ use crate::commands::{
     AutomationSync, ClosureHygiene, CommandArgs, DoneInDevStatus, IssueParentAutolink,
     IssueReopenOnDev, MainPrGate, MarkdownlintAutomation, ParentGuard, PrAutoClosesEnrichment,
     PrBodyContractSync, PrClosureNeutralizer, PrDirectiveConflictGuard, PrValidationRefresh,
-    RustfmtAutomation, ScriptsIntegrity, StableDepsPlaceholder, WorkflowRunPr,
+    PullRequestAutomation, RustfmtAutomation, ScriptsIntegrity, StableDepsPlaceholder,
+    WorkflowRunPr,
 };
 
 pub(crate) struct AutomationCli {
@@ -20,6 +21,7 @@ pub(crate) struct AutomationCli {
     pr_body_contract_sync: PrBodyContractSync,
     pr_closure_neutralizer: PrClosureNeutralizer,
     pr_directive_conflict_guard: PrDirectiveConflictGuard,
+    pull_request_automation: PullRequestAutomation,
     pr_validation_refresh: PrValidationRefresh,
     rustfmt_automation: RustfmtAutomation,
     scripts_integrity: ScriptsIntegrity,
@@ -42,6 +44,7 @@ impl AutomationCli {
             pr_body_contract_sync: PrBodyContractSync::new(args.clone()),
             pr_closure_neutralizer: PrClosureNeutralizer::new(args.clone()),
             pr_directive_conflict_guard: PrDirectiveConflictGuard::new(args.clone()),
+            pull_request_automation: PullRequestAutomation::new(args.clone()),
             pr_validation_refresh: PrValidationRefresh::new(args.clone()),
             rustfmt_automation: RustfmtAutomation::new(args.clone()),
             scripts_integrity: ScriptsIntegrity::new(args.clone()),
@@ -231,6 +234,17 @@ impl AutomationCli {
                     process::exit(1);
                 }
             }
+            "create-pull-request" => {
+                if self.should_show_help() {
+                    Self::print_create_pull_request_help();
+                    return;
+                }
+
+                if let Err(error) = self.pull_request_automation.create_or_update_pull_request() {
+                    eprintln!("{error}");
+                    process::exit(1);
+                }
+            }
             "guard-pr-body-contract" => {
                 if self.should_show_help() {
                     Self::print_guard_pr_body_contract_help();
@@ -307,7 +321,7 @@ impl AutomationCli {
             }
             "" | "help" | "--help" | "-h" => {
                 println!(
-                    "Usage: automation <sync-branch|sync-pull-request|merge-sync-pull-request|refresh-pr-validation|closure-hygiene|parent-guard|done-in-dev-status|reopen-on-dev|directive-conflict-guard|auto-add-closes|issue-parent-autolink|closure-neutralizer|closure-neutralizer-reevaluate|closure-neutralizer-skip-check|resolve-pr-body-context|generate-pr-description|guard-pr-body-contract|rustfmt-pr|markdownlint-pr|scripts-integrity|validate-main-pr-source|stable-deps-placeholder|resolve-workflow-run-pr> [options]"
+                    "Usage: automation <sync-branch|sync-pull-request|merge-sync-pull-request|refresh-pr-validation|closure-hygiene|parent-guard|done-in-dev-status|reopen-on-dev|directive-conflict-guard|auto-add-closes|issue-parent-autolink|closure-neutralizer|closure-neutralizer-reevaluate|closure-neutralizer-skip-check|resolve-pr-body-context|generate-pr-description|create-pull-request|guard-pr-body-contract|rustfmt-pr|markdownlint-pr|scripts-integrity|validate-main-pr-source|stable-deps-placeholder|resolve-workflow-run-pr> [options]"
                 );
             }
             other => {
@@ -406,6 +420,12 @@ impl AutomationCli {
     fn print_generate_pr_description_help() {
         println!(
             "Usage: automation generate-pr-description --pr <number> [--repo <owner/repo>] [--base <branch>] [--head <branch>] [--worktree <path>] [--write-pr]"
+        );
+    }
+
+    fn print_create_pull_request_help() {
+        println!(
+            "Usage: automation create-pull-request --title <title> --base <branch> --head <branch> [--repo <owner/repo>] [--worktree <path>]"
         );
     }
 

@@ -18,6 +18,11 @@ pub(crate) struct MilestoneSummary {
     pub(crate) open_issues: u64,
 }
 
+pub(crate) struct PullRequestCommit {
+    pub(crate) sha: String,
+    pub(crate) message: String,
+}
+
 impl GitHubCli {
     pub(crate) fn execute_api(&self, args: &[&str]) -> Result<Output, String> {
         let mut gh_args = vec!["api"];
@@ -209,8 +214,33 @@ impl GitHubCli {
         pr_number: &str,
         body: &str,
     ) -> Result<(), String> {
-        self.read_command(&["pr", "edit", pr_number, "-R", repo, "--body", body])?;
-        Ok(())
+        let edit_args = ["pr", "edit", pr_number, "-R", repo, "--body", body];
+        let output = self.execute_command(&edit_args)?;
+
+        if output.status.success() {
+            return Ok(());
+        }
+
+        let patch_args = [
+            "--method",
+            "PATCH",
+            &format!("repos/{repo}/pulls/{pr_number}"),
+            "-f",
+            &format!("body={body}"),
+        ];
+        let fallback = self.execute_api(&patch_args)?;
+
+        if fallback.status.success() {
+            return Ok(());
+        }
+
+        let primary_error = self.command_failure_message(&edit_args, &output);
+        let fallback_error =
+            self.command_failure_message(&self.with_api_prefix(&patch_args), &fallback);
+
+        Err(format!(
+            "{primary_error}\nFallback PR body update failed: {fallback_error}"
+        ))
     }
 
     pub(crate) fn read_pull_request_author_login(
@@ -243,7 +273,33 @@ impl GitHubCli {
             args.push(label);
         }
 
-        self.read_command(&args)?;
+        let output = self.execute_command(&args)?;
+
+        if output.status.success() {
+            return Ok(());
+        }
+
+        for label in labels {
+            let patch_args = [
+                "--method",
+                "POST",
+                &format!("repos/{repo}/issues/{pr_number}/labels"),
+                "-f",
+                &format!("labels[]={label}"),
+            ];
+            let fallback = self.execute_api(&patch_args)?;
+
+            if !fallback.status.success() {
+                let primary_error = self.command_failure_message(&args, &output);
+                let fallback_error =
+                    self.command_failure_message(&self.with_api_prefix(&patch_args), &fallback);
+
+                return Err(format!(
+                    "{primary_error}\nFallback PR label update failed: {fallback_error}"
+                ));
+            }
+        }
+
         Ok(())
     }
 
@@ -584,18 +640,39 @@ impl GitHubCli {
         repo: &str,
         pr_number: &str,
     ) -> Result<Vec<String>, String> {
+        Ok(self
+            .read_pull_request_commits(repo, pr_number)?
+            .into_iter()
+            .map(|commit| commit.message)
+            .collect())
+    }
+
+    pub(crate) fn read_pull_request_commits(
+        &self,
+        repo: &str,
+        pr_number: &str,
+    ) -> Result<Vec<PullRequestCommit>, String> {
         let output = self.read_api(&[
             &format!("repos/{repo}/pulls/{pr_number}/commits"),
             "--paginate",
             "--jq",
-            ".[].commit.message",
+            ".[] | [.sha, .commit.message] | @tsv",
         ])?;
 
         Ok(output
             .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .map(ToString::to_string)
+            .filter_map(|line| {
+                let (sha, message) = line.split_once('\t')?;
+                let message = message.trim();
+                if sha.trim().is_empty() || message.is_empty() {
+                    return None;
+                }
+
+                Some(PullRequestCommit {
+                    sha: sha.trim().to_string(),
+                    message: message.to_string(),
+                })
+            })
             .collect())
     }
 
@@ -726,15 +803,25 @@ impl GitHubCli {
         gh_args
     }
 
+    fn command_failure_message(&self, args: &[&str], output: &Output) -> String {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let details = if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            format!("exit status {}", output.status)
+        };
+
+        format!("gh {:?} failed: {}", args, details)
+    }
+
     fn require_success(&self, args: &[&str], output: Output) -> Result<String, String> {
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
         } else {
-            Err(format!(
-                "gh {:?} failed: {}",
-                args,
-                String::from_utf8_lossy(&output.stderr).trim()
-            ))
+            Err(self.command_failure_message(args, &output))
         }
     }
 
